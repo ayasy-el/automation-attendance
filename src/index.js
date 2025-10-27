@@ -138,14 +138,23 @@ async function tryAbsenForClass() {
     state.presensi.lastKulliah(state.login.ST, state.login.token, noMatkul, jenisSchemaMk)
   );
 
+  if (!infoPresensi?.open) {
+    console.log(`[PRESENSI] Belum dibuka: ${matkul.matakuliah.nama}`);
+
+    // Jika sudah absen sebelum jam matkul dibuka
+    if (await alreadySubmittedToday(noMatkul, jenisSchemaMk, infoPresensi.key)) {
+      console.log("[PRESENSI] Sudah melakukan presensi.");
+      return { done: true, reason: "already_submitted" };
+    }
+
+    // Jika absen belum buka
+    return { done: false, reason: "not_open" };
+  }
+
+  // Jika sudah absen saat jam matkul
   if (await alreadySubmittedToday(noMatkul, jenisSchemaMk, infoPresensi.key)) {
     console.log("[PRESENSI] Sudah melakukan presensi.");
     return { done: true, reason: "already_submitted" };
-  }
-
-  if (!infoPresensi?.open) {
-    console.log(`[PRESENSI] Belum dibuka: ${matkul.matakuliah.nama}`);
-    return { done: false, reason: "not_open" };
   }
 
   const push = await withTokenRefresh(state.login, () =>
