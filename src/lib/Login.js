@@ -1,6 +1,5 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
-import { USERNAME, PASSWORD } from "../utils/account.js";
 import { URL_ETHOL, URL_LOGIN } from "../utils/url.js";
 
 export class Login {
@@ -90,7 +89,7 @@ export class Login {
     }
   };
 
-  #postLoginEthol = async () => {
+  #postLoginEthol = async (USERNAME, PASSWORD) => {
     try {
       const response = await axios.post(
         `${URL_LOGIN}${this.formAction}`,
@@ -208,27 +207,35 @@ export class Login {
     }
   };
 
-  getAuth = async () => {
+  getAuth = async ({ token, st, username, password } = {}) => {
     try {
       if (!(await this.#getPHPSESSID())) throw new Error("Gagal mendapatkan PHPSESSID");
-      console.log("✅ Berhasil mendapatkan PHPSESSID");
+
+      if (token && st) {
+        this.token = token;
+        this.ST = st;
+        const ok = await this.#getvalidateToken();
+        if (ok) return this;
+
+        if (!username || !password) {
+          throw new Error("Token invalid/expired dan tidak ada kredensial untuk refresh.");
+        }
+      }
+
+      if (!username || !password) {
+        throw new Error("Butuh username & password untuk memperoleh token baru.");
+      }
 
       if (!(await this.#getLoginPage())) throw new Error("Gagal mendapatkan halaman login");
-      console.log("✅ Berhasil mendapatkan halaman login");
-
-      if (!(await this.#postLoginEthol()))
+      if (!(await this.#postLoginEthol(username, password)))
         throw new Error("Gagal login (username/password atau lt salah)");
-      console.log("✅ Berhasil login (CASTGC didapat)");
-
       if (!(await this.#getCas())) throw new Error("Gagal akses service dengan ST");
-      console.log("✅ Berhasil akses ke ethol.pens.ac.id pakai ST");
-
       if (!(await this.#getvalidateToken())) throw new Error("Gagal validasi token");
-      console.log("✅ Berhasil validasi token");
 
       return this;
     } catch (err) {
       console.error("❌", err.message);
+      throw err;
     }
   };
 }

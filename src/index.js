@@ -1,7 +1,7 @@
 import cron from "node-cron";
 import process from "node:process";
 import { Jadwal } from "./lib/Jadwal.js";
-import { Login } from "./lib/Login.js";
+import { login } from "./utils/account.js";
 import { Presensi } from "./lib/Presensi.js";
 import axios from "axios";
 
@@ -39,22 +39,6 @@ function randomDelay(min, max) {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
-async function withTokenRefresh(login, apiCall) {
-  try {
-    return await apiCall();
-  } catch (error) {
-    const expired =
-      error?.response?.data?.pesan?.includes("Token tidak valid") ||
-      error?.response?.status === false;
-    if (expired) {
-      console.log("[AUTH] Token expired, refreshing...");
-      await login.getAuth();
-      return await apiCall();
-    }
-    throw error;
-  }
-}
-
 /** ==== Global state ==== */
 const state = {
   login: null,
@@ -72,12 +56,7 @@ const state = {
 
 /** ==== Start up ==== */
 async function init() {
-  state.login = new Login();
-  let ok = await state.login.getAuth();
-  if (!ok) {
-    console.log("[AUTH] Login ulang...");
-    ok = await state.login.getAuth();
-  }
+  state.login = login;
   state.jadwal = new Jadwal();
   state.presensi = new Presensi();
 
@@ -107,14 +86,12 @@ function currentClass(jadwalHariIni) {
 }
 
 async function alreadySubmittedToday(nomor, jenisSchemaMk, keyPresensi) {
-  const riwayatPresensi = await withTokenRefresh(state.login, () =>
-    state.presensi.getRiwayatPresensi(
-      state.login.ST,
-      state.login.token,
-      nomor,
-      jenisSchemaMk,
-      state.login.nomorMhs
-    )
+  const riwayatPresensi = await state.presensi.getRiwayatPresensi(
+    state.login.ST,
+    state.login.token,
+    nomor,
+    jenisSchemaMk,
+    state.login.nomorMhs
   );
 
   const today = new Date().toISOString().split("T")[0];
@@ -127,22 +104,26 @@ async function alreadySubmittedToday(nomor, jenisSchemaMk, keyPresensi) {
 }
 
 async function tryAbsenForClass() {
-  const notifikasi = await withTokenRefresh(state.login, () =>
-    state.presensi.getNotifikasi(state.login.ST, state.login.token)
-  );
+  const notifikasi = await state.presensi.getNotifikasi(state.login.ST, state.login.token);
 
   const [noMatkul, jenisSchemaMk] = notifikasi[0].dataTerkait.split("-");
   const matkul = state.jadwal.data.find((j) => j.nomor == noMatkul);
 
-  const infoPresensi = await withTokenRefresh(state.login, () =>
-    state.presensi.lastKulliah(state.login.ST, state.login.token, noMatkul, jenisSchemaMk)
+  const infoPresensi = await state.presensi.lastKulliah(
+    state.login.ST,
+    state.login.token,
+    noMatkul,
+    jenisSchemaMk
   );
 
   if (!infoPresensi?.open) {
-    console.log(`[PRESENSI] Belum dibuka: ${matkul.matakuliah.nama}`);
+    console.log(`[PRESENSI] Belum dibuka, matkul terakhir: ${matkul.matakuliah.nama}`);
 
     // Jika sudah absen sebelum jam matkul dibuka
-    if (await alreadySubmittedToday(noMatkul, jenisSchemaMk, infoPresensi.key)) {
+    if (
+      state.highFreqEnabled &&
+      (await alreadySubmittedToday(noMatkul, jenisSchemaMk, infoPresensi.key))
+    ) {
       console.log("[PRESENSI] Sudah melakukan presensi.");
       return { done: true, reason: "already_submitted" };
     }
@@ -157,16 +138,14 @@ async function tryAbsenForClass() {
     return { done: true, reason: "already_submitted" };
   }
 
-  const push = await withTokenRefresh(state.login, () =>
-    state.presensi.sumbitPresensi(
-      state.login.ST,
-      state.login.token,
-      noMatkul,
-      state.login.nomorMhs,
-      jenisSchemaMk,
-      matkul.kuliah_asal,
-      infoPresensi.key
-    )
+  const push = await state.presensi.sumbitPresensi(
+    state.login.ST,
+    state.login.token,
+    noMatkul,
+    state.login.nomorMhs,
+    jenisSchemaMk,
+    matkul.kuliah_asal,
+    infoPresensi.key
   );
 
   if (push?.sukses) {
